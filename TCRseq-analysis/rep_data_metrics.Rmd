@@ -1,0 +1,190 @@
+# Overviews on the TCR-seq Data
+
+## Load library and data
+
+```{r}
+library(ggplot2)
+library(ggpubr)
+library(cowplot)
+library(ggpmisc)
+
+datapath = '../../tcrseq-analysis/DanaFarberShipp2018May_clean/'
+tab = read.table('./work/rep_metric.txt', header=T)
+meta = read.csv(paste0(datapath, '_meta.csv'))
+tab = merge(tab, meta, by='File')
+```
+
+## Clean up
+
+```{r}
+tab = tab[tab$BOR != 'SD',] ## remove SD
+tab = tab[tab$BOR != 'NewErr',] ## remove Error
+tab = tab[tab$BOR != 'NE',] ## remove NE
+tab = tab[tab$BOR != 'DonorOld',] ## remove Old
+
+tab$Type = as.character(tab$BOR)
+tab$Type[tab$Cohort_new == 'D'] = 'Newly'
+tab$Type[tab$Cohort_new == 'Donor'] = 'Donor'
+tab$Type = factor(tab$Type, levels=c('CR', 'PR', 'SD', 'PD', 'Newly', 'Donor'))
+tab$Time = factor(tab$Time, levels=c('Pre', 'Post1', 'Post2'))
+tab$Interval = 'N/A'
+tab$Interval[tab$Time.between.ASCT.and.First.Dose < 12] = 'ASCT < 1year'
+tab$Interval[tab$Time.between.ASCT.and.First.Dose >= 12] = 'ASCT >= 1year'
+tab$Interval = factor(tab$Interval, levels=c('ASCT < 1year', 'ASCT >= 1year', 'N/A'))
+tab$Cohort = paste('Cohort-', as.character(tab$Cohort_new), sep='')
+tab$Cohort[tab$Cohort == 'Cohort-Donor'] = 'Donor'
+tab$Cohort[tab$Cohort == 'Cohort-C-BT'] = 'Cohort-C'
+tab$Cohort[tab$Cohort == 'Cohort-C-TB'] = 'Cohort-C'
+tab$Cohort = as.factor(tab$Cohort)
+tab$BOR = factor(tab$BOR, levels=c('Donor', 'Newly', 'CR', 'PR', 'PD'))
+tab$Type = factor(tab$Type, levels=c('CR','PD','PR','Donor','Newly'))
+
+print(nrow(tab))
+table(tab$Cohort_new, tab$Time)
+
+tab$PID = paste0('P',tab$ZID)
+```
+
+
+## Differet types of patients
+
+```{r}
+baseline = tab[tab$Time == 'Pre', ]
+baseline$Group = 'Relapsed/Refractory'
+baseline$Group[baseline$Type == 'Donor'] = 'Healthy Donors'
+baseline$Group[baseline$Type == 'Newly'] = 'Newly Diagnosed'
+
+table(baseline$Group)
+table(baseline$Cohort)
+
+P1 <- ggplot(baseline, aes(Group, AA.Entropy, color=Group)) +
+    geom_boxplot(outlier.shape = NA) +
+    geom_dotplot(binaxis='y', stackdir='center', dotsize=0.5, aes(fill=Group)) +
+    scale_fill_manual(values=c("#009E73", "#D55E00", "#0072B2")) +
+    scale_color_manual(values=c("#009E73", "#D55E00", "#0072B2")) +
+    xlab('') +
+    ylab('TCR repertoire diversity') +
+    stat_compare_means(comparisons = list(c(2,3), c(1,2), c(1,3)), method="wilcox.test") +
+    scale_y_continuous(limits = c(5,21)) +
+    theme_pubr() +
+    theme(legend.position = 'none')
+
+pdf('work/plot.TCR_diversity_case.pdf', height=4, width=5.5)
+P1
+dev.off()
+P1
+```
+
+## ASCT and TCR diversity
+
+```{r, fig.height=4, fig.width=7}
+new = tab
+new$Group = as.character(new$Type)
+new$Group[new$Group == 'CR' & new$Interval == 'ASCT >= 1year'] = 'CR\nASCT>=1yr'
+new$Group[new$Group == 'CR' & new$Interval == 'ASCT < 1year'] = 'CR\nASCT<1yr'
+new$Group[new$Group %in% c('PR','SD','PD') & new$Interval == 'ASCT >= 1year'] = 'PR/PD\nASCT>=1yr'
+new$Group[new$Group %in% c('PR','SD','PD') & new$Interval == 'ASCT < 1year'] = 'PR/PD\nASCT<1yr'
+
+new$Samples = new$Group
+new$Samples[new$Interval == 'ASCT >= 1year'] = 'ASCT>=1yr'
+new$Samples[new$Interval == 'ASCT < 1year'] = 'ASCT<1yr'
+new$Samples = factor(new$Samples, c('Donor', 'Newly', 'ASCT>=1yr', 'ASCT<1yr'))
+
+new$Group = factor(new$Group, c('Donor', 'Newly', 'CR\nASCT>=1yr', 'PR/PD\nASCT>=1yr', 
+                                'CR\nASCT<1yr', 'PR/PD\nASCT<1yr'))
+levels(new$Group)[1] = 'Healthy\nDonors'
+levels(new$Group)[2] = 'Newly\nDiagnosed'
+levels(new$Cohort)[5] = 'Newly Diagnosed'
+levels(new$Cohort)[6] = 'Healthy Donors'
+
+table(new[new$Time == 'Pre', 'Group'])
+
+P1 <- ggplot(new[new$Time == 'Pre' & new$Group != 'Healthy\nDonors', ], aes(Group, AA.Entropy)) + 
+    theme_classic() +
+    geom_boxplot(outlier.shape = NA) +
+    geom_dotplot(binaxis='y', stackdir='center', dotsize=0.8, aes(color=Samples, fill=Samples)) +
+    scale_color_manual(values=c("#D55E00", "#0072B2", "#0072B2")) +
+    scale_fill_manual(values=c("#D55E00", "#0072B2", "#EEEEEE")) +
+    stat_compare_means(comparisons = list(c(1,2), c(2,3), c(4,5), c(2,4)), method="wilcox.test") +
+    xlab('') +
+    ylab('TCR repertoire diversity')
+
+pdf('./work/plot.ASCT_TCR_diversity.pdf', height=4, width=7)
+P1
+dev.off()
+P1
+```
+
+## Separate PR and PD patients
+
+```{r, fig.height=4, fig.width=7}
+new = tab
+new$Group = as.character(new$Type)
+new$Group[new$Group == 'CR' & new$Interval == 'ASCT >= 1year'] = 'CR\nASCT>=1yr'
+new$Group[new$Group == 'CR' & new$Interval == 'ASCT < 1year'] = 'CR\nASCT<1yr'
+new$Group[new$Group == 'PR' & new$Interval == 'ASCT >= 1year'] = 'PR\nASCT>=1yr'
+new$Group[new$Group == 'PR' & new$Interval == 'ASCT < 1year'] = 'PR\nASCT<1yr'
+new$Group[new$Group == 'PD' & new$Interval == 'ASCT >= 1year'] = 'PD\nASCT>=1yr'
+new$Group[new$Group == 'PD' & new$Interval == 'ASCT < 1year'] = 'PD\nASCT<1yr'
+
+new$Samples = new$Group
+new$Samples[new$Interval == 'ASCT >= 1year'] = 'ASCT>=1yr'
+new$Samples[new$Interval == 'ASCT < 1year'] = 'ASCT<1yr'
+new$Samples = factor(new$Samples, c('Donor', 'Newly', 'ASCT>=1yr', 'ASCT<1yr'))
+
+new$Group = factor(new$Group, c('Donor', 'Newly', 'CR\nASCT>=1yr', 'PR\nASCT>=1yr', 'PD\nASCT>=1yr',
+                                'CR\nASCT<1yr', 'PR\nASCT<1yr', 'PD\nASCT<1yr'))
+levels(new$Group)[1] = 'Healthy\nDonors'
+levels(new$Group)[2] = 'Newly\nDiagnosed'
+levels(new$Cohort)[5] = 'Newly Diagnosed'
+levels(new$Cohort)[6] = 'Healthy Donors'
+
+print(data.frame(table(new[new$Time == 'Pre', 'Group'])))
+
+P1 <- ggplot(new[new$Time == 'Pre', ], aes(Group, AA.Entropy)) + 
+    theme_classic() +
+    geom_boxplot(outlier.shape = NA) +
+    geom_dotplot(binaxis='y', stackdir='center', dotsize=0.8, aes(color=Samples, fill=Samples)) +
+    scale_color_manual(values=c("#009E73", "#D55E00", "#0072B2", "#0072B2")) +
+    scale_fill_manual(values=c("#009E73", "#D55E00", "#0072B2", "#EEEEEE")) +
+    stat_compare_means(comparisons = list(c(1,2), c(2,3), c(3,4), c(4,5), c(3,5)), method="wilcox.test") +
+    xlab('') +
+    ylab('TCR repertoire diversity')
+
+pdf('./work/plot.ASCT_TCR_diversity-sup.pdf', height=4, width=8)
+P1
+dev.off()
+P1
+```
+
+## Responses with time
+
+```{r}
+new = tab[tab$BOR %in% c('CR','PR','PD'), ]
+new$BOR = factor(as.character(new$BOR), c('CR','PR','PD'))
+new$Case = as.factor(new$Time)
+levels(new$Case) <- list("C1/D1"="Pre", "C2/D1"="Post1", "C4/D1"="Post2")
+new = new[new$Time.between.ASCT.and.First.Dose >= 12, ]
+
+print(table(new[, c('Case','BOR')]))
+
+P1 <- ggplot(new, aes(BOR, AA.Entropy, color=BOR)) + 
+    geom_boxplot(outlier.shape = NA) +
+    geom_dotplot(binaxis='y', stackdir='center', dotsize=0.5, aes(fill=BOR)) +
+    stat_compare_means(comparisons = list(c(2,3), c(1,2), c(1,3)), method="wilcox.test") + 
+    ylab('TCR repertoire diversity') +
+    xlab('Best overall response') +
+    facet_grid(.~Case, scales = "free", space = "free") +
+    theme_classic()
+
+pdf('./work/plot.BOR_TCR_diversity-sup.pdf', height = 4, width = 6)
+P1
+dev.off()
+P1
+```
+
+## Show package versions
+
+```{r}
+sessionInfo()
+```

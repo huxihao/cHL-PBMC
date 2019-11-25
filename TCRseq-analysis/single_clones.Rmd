@@ -1,0 +1,161 @@
+# Comparison to the CyTOF data
+
+## load library and data
+
+```{r fig.height=4, fig.width=6}
+library(ggplot2)
+library(ggpubr)
+library(cowplot)
+
+meta = read.csv('../../tcrseq-analysis/DanaFarberShipp2018May_clean/_meta.csv')
+tcrseq = read.table('./work/rep_metric.txt', header=T)
+cytof = read.csv('../../tcrseq-analysis/CyTOF_summary.July16.csv')
+
+cytof$CD4_total = cytof$CD4.CM + cytof$CD4.EM + cytof$CD4.naive + cytof$CD4.Temra
+cytof$CD8_total = cytof$CD8.CM + cytof$CD8.EM + cytof$CD8.naive + cytof$CD8.Temra
+
+cytof$CD4.CM = 100*cytof$CD4.CM / cytof$CD4_total
+cytof$CD4.EM = 100*cytof$CD4.EM / cytof$CD4_total
+cytof$CD4.naive = 100*cytof$CD4.naive / cytof$CD4_total
+cytof$CD4.Temra = 100*cytof$CD4.Temra / cytof$CD4_total
+
+cytof$CD8.CM = 100*cytof$CD8.CM / cytof$CD8_total
+cytof$CD8.EM = 100*cytof$CD8.EM / cytof$CD8_total
+cytof$CD8.naive = 100*cytof$CD8.naive / cytof$CD8_total
+cytof$CD8.Temra = 100*cytof$CD8.Temra / cytof$CD8_total
+
+data = merge(tcrseq, meta, by=c('File'))
+data = merge(data, cytof, by=c('Time', 'ZID', 'Cohort', 'Cohort_new'))
+
+data$Interval = 'N/A'
+data$Interval[data$Time.between.ASCT.and.First.Dose <  12] = '< 1year'
+data$Interval[data$Time.between.ASCT.and.First.Dose >= 12] = '>= 1year'
+data$Interval = factor(data$Interval, levels=c('< 1year', '>= 1year', 'N/A'))
+
+data$Cohort = paste('Cohort-', as.character(data$Cohort_new.x), sep='')
+data$Cohort[data$Cohort == 'Cohort-Donor'] = 'Donor'
+data$Cohort[data$Cohort == 'Cohort-C-BT'] = 'Cohort-C'
+data$Cohort[data$Cohort == 'Cohort-C-TB'] = 'Cohort-C'
+data$Cohort = as.factor(data$Cohort)
+
+data$Group = factor(data$BOR.by.IRRC, c('Donor', 'Newly', 'CR', 'PR', 'PD'))
+data$Time = factor(data$Time, c('Pre', 'Post1', 'Post2'))
+
+data = data[data$Time == 'Pre' & data$Interval == '>= 1year' & data$BOR != 'SD', ]
+data$BOR = factor(as.character(data$BOR), levels=c('CR', 'PR', 'PD'))
+dim(data)
+```
+
+## Plot the correlation
+
+```{r}
+lm_eqn = function(x, y){
+  m1 = cor.test(x, y, method='pearson');
+  eq <- substitute(~~italic(r)~"="~R1*","~~italic(p)~"="~P1, 
+                   list(P1 = format.pval(m1$p.value, digits = 2), 
+                        R1 = format(as.numeric(m1$estimate), digits = 2)))
+  as.character(as.expression(eq))
+}
+
+data$TCRseq.Single.Clone.Ratio = 100 * data$DNA.Single / data$DNA.Total
+data$TCRseq.Expand.Clone.Ratio = 100 * (1-data$DNA.Single / data$DNA.Total)
+data$CyTOF.Naive.Ratio = (data$CD3pos.CD4*data$CD4.naive + data$CD3pos.CD8*data$CD8.naive) /
+                         (data$CD3pos.CD4 + data$CD3pos.CD8)
+data$CyTOF.Memory.Ratio = (data$CD3pos.CD4*(100-data$CD4.naive) + data$CD3pos.CD8*(100-data$CD8.naive)) /
+                          (data$CD3pos.CD4 + data$CD3pos.CD8)
+
+P1 <- ggplot(data, aes(CyTOF.Naive.Ratio, TCRseq.Single.Clone.Ratio)) +
+    geom_point(aes(color=BOR)) +
+    stat_smooth(method = "lm", formula = y ~ x, se=F) + 
+    geom_text(data = data.frame(), aes(x = 0, y = 75, label = 
+              lm_eqn(data$CyTOF.Naive.Ratio, data$TCRseq.Single.Clone.Ratio)), hjust = 0, parse = TRUE) +
+    xlab('CyTOF measured ratio of native T cells') +
+    ylab('TCR-seq measured ratio of single-clone T cells') +
+    coord_fixed() +
+    theme_minimal()
+
+pdf('./work/plot.cytof_tcrseq_corr.pdf', height=4, width=4)
+P1
+dev.off()
+P1
+```
+
+## Re-load the data
+
+```{r}
+tab = read.table('./work/expanded_summary.csv', sep=',', header=T)
+tab$Time = factor(tab$Time, c('Pre', 'Post1', 'Post2'))
+tab = tab[tab$Time.between.ASCT.and.First.Dose >= 12, ]
+
+new = tab[tab$BOR %in% c('CR', 'PR', 'PD'), ]
+new$BOR = factor(new$BOR, c('CR', 'PR', 'PD'))
+
+cytof$Naive.Ratio = (cytof$CD3pos.CD4*cytof$CD4.naive + cytof$CD3pos.CD8*cytof$CD8.naive) /
+                    (cytof$CD3pos.CD4 + cytof$CD3pos.CD8) / 100
+cytof$CD8.Naive.Ratio = cytof$CD3pos.CD8 * cytof$CD8.naive / 10000
+
+new = merge(new, cytof, by=c('Time', 'ZID'))
+new$BOR = as.character(new$BOR)
+new$BOR = factor(new$BOR, c('CR', 'PR', 'PD'))
+```
+
+## Show the changes
+
+```{r, fig.height=5, fig.width=8}
+new$Case = new$Time
+levels(new$Case) <- list("C1/D1"="Pre", "C2/D1"="Post1", "C4/D1"="Post2")
+print(table(new[, c('Case', 'BOR')]))
+
+P1 <- ggplot(new, aes(BOR, Expanded.Memory.Clone.Ratio, color=BOR)) + 
+    geom_boxplot(outlier.shape = NA) +
+    geom_jitter() +
+    scale_y_log10(breaks=c(0.0001, 0.001, 0.01, 0.1, 1), labels = scales::percent) +
+    stat_compare_means(comparisons = list(c(2,3), c(1,2), c(1,3)), method="wilcox.test") + 
+    xlab('Best overall response') +
+    ylab('Expanded non-single-clone T cells') +
+    facet_grid(.~Case, scales = "free", space = "free") +
+    theme_pubr() +
+    theme(legend.position = 'none')
+
+P2 <- ggplot(new, aes(BOR, Expanded.Naive.Clone.Ratio, color=BOR)) + 
+    geom_boxplot(outlier.shape = NA) +
+    geom_jitter() +
+    scale_y_log10(breaks=c(0.0001, 0.001, 0.01, 0.1, 1), labels = scales::percent) +
+    stat_compare_means(comparisons = list(c(2,3), c(1,2), c(1,3)), method="wilcox.test") + 
+    xlab('Best overall response') +
+    ylab('Expanded single-clone T cells') +
+    facet_grid(.~Case, scales = "free", space = "free") +
+    theme_pubr() +
+    theme(legend.position = 'none')
+
+pdf('./work/plot.expanded_clones.pdf', height = 4, width = 8)
+plot_grid(P2, P1, nrow=1)
+dev.off()
+plot_grid(P2, P1, nrow=1)
+```
+
+## Use the ratio
+
+```{r}
+new$expand.ratio = log2(new$Expanded.Naive.Clone.Ratio / new$Expanded.Memory.Clone.Ratio)
+
+P3 <- ggplot(new, aes(BOR, expand.ratio, color=BOR)) + 
+    geom_boxplot(outlier.shape = NA) +
+    geom_dotplot(binaxis='y', stackdir='center', dotsize=0.5, aes(fill=BOR)) +
+    stat_compare_means(comparisons = list(c(2,3), c(1,2), c(1,3)), method="wilcox.test") + 
+    ylab('log2(Expanded single-clones / non-single-clones)') +
+    xlab('Best overall response') +
+    theme_classic() +
+    facet_grid(~Case)
+
+pdf('./work/plot.expanded_single_over_nonsingle.pdf', height=4, width=6)
+P3
+dev.off()
+P3
+```
+
+## Show package versions
+
+```{r}
+sessionInfo()
+```

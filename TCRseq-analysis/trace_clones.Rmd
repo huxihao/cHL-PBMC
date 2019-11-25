@@ -1,0 +1,124 @@
+# Trace the expanded clones in the TCR-seq
+
+## Load library and data
+
+```{r}
+library(ggplot2)
+library(ggpubr)
+library(cowplot)
+
+datapath = '../../tcrseq-analysis/DanaFarberShipp2018May_clean/'
+
+meta = read.table(paste0(datapath, '_meta.csv'), sep=',', header=T)
+meta$Time = factor(meta$Time, c('Pre', 'Post1', 'Post2'))
+
+all_fold = read.csv('./work/expanded_clones.csv.gz.all_fold.gz', header = F)
+colnames(all_fold) = c('Fold')
+enrich = read.csv('./work/expanded_clones.csv.gz')
+
+P1 <- ggplot(enrich, aes(log2(Fold))) +
+    geom_histogram(data = all_fold, binwidth = 0.1, fill='green', alpha=0.5) +
+    geom_histogram(binwidth = 0.1, fill='blue', alpha=0.5) +
+    scale_x_continuous(limits = c(-5,5)) +
+    geom_vline(xintercept=log2(2), linetype="dashed", color = "red") +
+    theme_pubr()
+
+print(length(unique(enrich$PID)))
+print(paste(nrow(enrich[enrich$Fold >= 2, ]), 'out of', length(all_fold$Fold)))
+
+pdf('./work/plot.clone_expand_dist.pdf', height = 3, width = 4)
+P1
+dev.off()
+P1
+```
+
+## Select expanded clones
+
+```{r}
+expanded = enrich[enrich$Fold >= 2, ]
+unique_expanded = unique(expanded[, c('V', 'CDR3', 'J', 'Type')])
+unique_expanded$clone = paste(unique_expanded$V, unique_expanded$CDR3, unique_expanded$J)
+```
+
+## Check the clones in McPAS
+
+```{r}
+mcpas = read.csv('../../tcrseq-analysis/McPAS-TCR_v2017April27.csv')
+mcpas_valid = mcpas[!is.na(mcpas$CDR3.beta.aa) & !is.na(mcpas$TRBV) & !is.na(mcpas$TRBJ), 
+                    c('CDR3.beta.aa', 'TRBV', 'TRBJ', 'Species', 'Category', 
+                      'Pathology', 'Antigen.protein', 'T.Cell.Type', 'PubMed.ID')]
+mcpas_valid = unique(mcpas_valid)
+mcpas_valid$clone = paste(mcpas_valid$TRBV, mcpas_valid$CDR3.beta.aa, mcpas_valid$TRBJ)
+
+s1 = unique(paste(mcpas$TRBV, mcpas$CDR3.beta.aa, mcpas$TRBJ))
+s2 = unique(paste(unique_expanded$V, unique_expanded$CDR3, unique_expanded$J))
+print(paste('McPAS =', length(s1), 'Expand =', length(s2)))
+print(paste('McPAS & Expaned =', length(intersect(s1,s2)), length(intersect(s1,s2))/length(s2)))
+```
+
+## Plot ratio
+
+```{r}
+shared_clones = merge(unique_expanded, mcpas_valid, by='clone')
+shared_clones = unique(shared_clones[, c('clone','V','CDR3','J','Category','Pathology')])
+mcpas_valid = unique(mcpas_valid[, c('CDR3.beta.aa','TRBV','TRBJ','Category','Pathology')])
+write.csv(shared_clones, file='./work/expanded_McPAS_clones.csv', row.names = F)
+
+stat_cat = data.frame(rbind(table(shared_clones$Category)))
+stat_cat_all = data.frame(rbind(table(mcpas_valid$Category)))
+print(stat_cat)
+print(stat_cat_all)
+
+stat_cmp = as.data.frame(t(rbind(stat_cat, stat_cat_all)))
+stat_cmp$R1 = stat_cmp$V1 / sum(stat_cmp$V1)
+stat_cmp$R2 = stat_cmp$V2 / sum(stat_cmp$V2)
+stat_cmp$Enrichment = stat_cmp$R1 / stat_cmp$R2
+stat_cmp$Category = rownames(stat_cmp)
+
+s1 = data.frame(Category=stat_cmp$Category, Propotion=stat_cmp$R1, Case='Expanded\nT Cells')
+s2 = data.frame(Category=stat_cmp$Category, Propotion=stat_cmp$R2, Case='All T Cells\nin McPAS')
+ss = rbind(s1,s2)
+
+ss$Category = factor(as.character(ss$Category), levels=stat_cmp$Category)
+
+scientific_10 <- function(x) {
+  parse(text=gsub("e", " %*% 10^", scales::scientific_format(digits = 1)(x)))
+}
+
+pvalues = c()
+for(case in stat_cmp$Category){
+    ptable = matrix(as.numeric(c(stat_cmp[stat_cmp$Category == case, c('V1','V2')],
+                               colSums(stat_cmp[stat_cmp$Category != case, c('V1','V2')]))), nrow = 2)
+    rownames(ptable) = c(case, 'Other Cases')
+    colnames(ptable) = levels(ss$Case)
+    print(ptable)
+    print(paste(case, 'Fisher P-value =', fisher.test(ptable)$p.value))
+    if(fisher.test(ptable)$p.value > 0.01)
+        pvalues = c(pvalues, round(fisher.test(ptable)$p.value, 2))
+    else
+        pvalues = c(pvalues, scientific_10(fisher.test(ptable)$p.value))
+}
+pvalues = as.list(pvalues)
+
+P2 <- ggplot(ss, aes(x=Case, y=Propotion, fill=Category)) +
+    geom_bar(width = 0.6, stat = "identity") +
+    scale_fill_brewer(palette="Set2") +
+    scale_y_continuous(labels=scales::percent) +
+    annotate(geom='text', x=1.5, y=seq(1,0,-0.21), label = pvalues, parse = T)+
+    labs(x='', y='Propotion of clonotypes') +
+    theme_classic(base_size = 14)
+
+pdf('./work/plot.McPAS_annotations.pdf', height = 4, width = 5)
+P2
+dev.off()
+P2
+```
+## Show package versions
+```{r}
+sessionInfo()
+```
+
+
+
+
+
