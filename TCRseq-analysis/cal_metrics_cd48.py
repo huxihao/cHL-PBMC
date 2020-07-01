@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--datapath', type=str, default='./DanaFarberShipp2018May_clean/', help='Data path')
+parser.add_argument('--datapath', type=str, default='./DanaFarberShipp2020Feb/', help='Data path')
 parser.add_argument('--workpath', type=str, default='./work/', help='Work path')
 parser.add_argument('--vdjtools', type=str, default='vdjtools')
 
@@ -67,6 +67,21 @@ def save_metric(datapath, outfile):
         for d in cc:
             metric.write('\t'+'\t'.join([str(i) for i in stat_rep(d)]))
         metric.write('\n')
+
+        # including an in-silico mixed case
+        if '_CD4' in f:
+            p8 = p.replace('_CD4','_CD8')
+            total8, cc8 = get_rep(p8)
+            metric.write(f.replace('_CD4','_Mix')+'\t'+str(total+total8))
+            for d, d8 in zip(cc, cc8): # CD4 and CD8
+                for i in d8:
+                    if i in d:
+                        d[i] = d[i] + d8[i]
+                    else:
+                        d[i] = d8[i]
+                metric.write('\t'+'\t'.join([str(i) for i in stat_rep(d)]))
+            metric.write('\n')
+
     metric.close()
     return
 
@@ -88,19 +103,34 @@ def run_vdjtools(datapath, workpath):
     os.system(args.vdjtools+' CalcPairwiseDistances -i aa -p -m metadata.txt VDJtools')
     os.system(args.vdjtools+' ClusterSamples -i aa -p VDJtools VDJtools')
 
+## new codes for CD4 and CD8 TCR-seq
+subject_id_map = None
+def map_subject(id, ref='../cd4-cd8-batch/CD4_CD8_sorted_samples.csv'):
+    global subject_id_map
+    if subject_id_map is None:
+        meta = pd.read_csv(ref, converters={i: str for i in range(0, 50)})
+        meta = meta[['C1D1','C4D1','ZID']].drop_duplicates()
+        print meta.head()
+        subject_id_map = {}
+        for row in meta.itertuples():
+            subject_id_map[row.C1D1] = row.ZID
+            subject_id_map[row.C4D1] = row.ZID
+    return subject_id_map.get(id, 'Unknown')
+
 def count_clones(datapath, clonefile, outfile):
     clones = pd.read_csv(clonefile)
+    clones['PID'] = clones['PID'].astype(str)
     pos = set()
     neg = set()
-    for idx, row in clones.iterrows():
-        if row['Type'] == 'Naive':
-            pos.add((row['V'],row['CDR3'],row['J'],row['PID']))
-        if row['Type'] == 'Memory':
-            neg.add((row['V'],row['CDR3'],row['J'],row['PID']))
+    for row in clones.itertuples():
+        if row.Type == 'Naive':
+            pos.add((row.V, row.CDR3, row.J, row.PID))
+        if row.Type == 'Memory':
+            neg.add((row.V, row.CDR3, row.J, row.PID))
     print len(pos), len(neg)
 
     metric = open(outfile, 'w')
-    metric.write('File\tClones.Total\tClones.Expand.Naive\tClones.Expand.Memory\n')
+    metric.write('File\tZID\tTime\tCell.Type\tClones.Total\tClones.Expand.Naive\tClones.Expand.Memory\n')
     if type(datapath) == type(''):
         data = []
         for f in os.listdir(datapath):
@@ -111,18 +141,40 @@ def count_clones(datapath, clonefile, outfile):
         data = datapath
     for ele in data:
         f, p = ele[:2]
-        try:
-            PID = int(f.split('/')[-1].split('_')[0])
-        except:
-            PID = ''
-        print 'Process', f
+        keys = f.split('/')[-1].replace('.txt.gz','').split('_')
+        if len(keys) == 2:
+            PID, TYPE = keys
+            TIME = 'C1D1'
+        elif len(keys) == 3:
+            PID, TIME, TYPE = keys
+            if TIME == 'new':
+                TIME = 'C1D1' # pre-ICB
+        else:
+            raise ValueError("Unknown keys "+'_'.join(keys))
+        PID = map_subject(PID)
+        print 'Process', PID, TIME, TYPE, f
         total, counts = get_rep(p)
         v_dna_j, v_aa_j, v_j = counts
         sp = [v_aa_j[i] for i in v_aa_j if tuple(list(i)+[PID]) in pos]
         sn = [v_aa_j[i] for i in v_aa_j if tuple(list(i)+[PID]) in neg]
         P = sum(sp)
         N = sum(sn)
-        metric.write(f+'\t'+str(total)+'\t'+str(P)+'\t'+str(N)+'\n')
+        metric.write('\t'.join([f,PID,TIME,TYPE])+'\t'+str(total)+'\t'+str(P)+'\t'+str(N)+'\n')
+
+        # including an in-silico mixed case
+        if '_CD4' in f:
+            p8 = p.replace('_CD4','_CD8')
+            total8, counts8 = get_rep(p8)
+            f = f.replace('_CD4','_Mix')
+            v_dna_j8, v_aa_j8, v_j8 = counts
+            sp8 = [v_aa_j8[i] for i in v_aa_j8 if tuple(list(i)+[PID]) in pos]
+            sn8 = [v_aa_j8[i] for i in v_aa_j8 if tuple(list(i)+[PID]) in neg]
+            P8 = sum(sp8)
+            N8 = sum(sn8)
+            metric.write('\t'.join([f,PID,TIME,'Mix'])+'\t'+
+                    str(total+total8)+'\t'+str(P+P8)+'\t'+str(N+N8)+'\n')
+
+
     metric.close()
 
 if __name__ == '__main__':

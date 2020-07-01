@@ -1,0 +1,301 @@
+# Sorted TCR-seq statistics
+
+## Load library and data
+
+```{r}
+library(ggplot2)
+library(ggpubr)
+library(cowplot)
+library(ggpmisc)
+library(cowplot)
+
+datapath = '../../cd4-cd8-batch/DanaFarberShipp2020Feb/'
+metric = read.csv(paste0(datapath, '_rep_metric.txt'), sep='\t')
+clones = read.csv(paste0(datapath, '_rep_clones.txt'), sep='\t')
+tab = merge(metric, clones, by='File')
+meta = read.csv(paste0(datapath, '_meta.csv'))
+meta$Time = factor(as.character(meta$Time), levels = c('Pre','Post1','Post2'))
+levels(meta$Time) <- c('C1D1','C2D1','C4D1')
+tab$Time = as.character(tab$Time)
+tab = merge(tab, meta, by=c('ZID','Time'))
+
+tab$Interval = 'N/A'
+tab$Interval[tab$Time.between.ASCT.and.First.Dose < 12] = 'ASCT < 1year'
+tab$Interval[tab$Time.between.ASCT.and.First.Dose >= 12] = 'ASCT >=1year'
+tab$Interval = factor(tab$Interval, levels=c('ASCT < 1year', 'ASCT >=1year', 'N/A'))
+
+tab$Cell.Type = as.character(tab$Cell.Type)
+tab$Cell.Type[tab$Cell.Type == 'Mix'] = 'CD4+ and CD8+'
+tab$ZID.Cell = paste(tab$ZID, tab$Cell.Type, sep='.')
+
+tab = tab[tab$BOR != 'SD',] ## remove SD
+tab = tab[tab$BOR != 'NewErr',] ## remove Error
+tab = tab[tab$BOR != 'NE',] ## remove NE
+tab = tab[tab$BOR != 'DonorOld',] ## remove Old
+```
+
+# Similar figures as in the bulk analysis
+
+```{r}
+baseline = tab[(tab$Time == 'C1D1') & (tab$Cell.Type == 'CD4'), ]
+baseline$Group = 'Relapsed/\nrefractory'
+baseline$Group[baseline$BOR == 'Donor'] = 'Healthy\ndonors'
+baseline$Group[baseline$BOR == 'Newly'] = 'Newly\ndiagnosed'
+
+table(baseline$Group)
+table(baseline$Cohort)
+
+P1 <- ggplot(baseline, aes(Group, AA.Entropy, color=Group)) +
+    geom_boxplot(outlier.shape = NA) +
+    geom_dotplot(binaxis='y', stackdir='center', dotsize=0.5, aes(fill=Group)) +
+    scale_fill_manual(values=c("#009E73", "#D55E00", "#0072B2")) +
+    scale_color_manual(values=c("#009E73", "#D55E00", "#0072B2")) +
+    xlab('') +
+    ylab('TCR repertoire diversity') +
+    scale_y_continuous(limits = c(5,21)) +
+    stat_compare_means(comparisons = list(c(2,3), c(1,2), c(1,3)), method="wilcox.test",
+                       method.args = list(alternative = "greater")) +
+    theme_pubr() +
+    theme(legend.position = 'none')
+
+pdf(paste0('outputs/Fig1c.TCR_diversity_CD4.pdf'), height=4, width=3.5)
+P1
+dev.off()
+P1
+
+baseline$Group = sub('\\n', ' ', baseline$Group)
+write.csv(baseline[, c('ZID', 'Group', 'AA.Entropy')], file = 'outputs/SourceData.Fig1c.csv', row.names = F)
+```
+
+
+```{r}
+baseline = tab[(tab$Time == 'C1D1') & (tab$Cell.Type == 'CD8'), ]
+baseline$Group = 'Relapsed/\nrefractory'
+baseline$Group[baseline$BOR == 'Donor'] = 'Healthy\ndonors'
+baseline$Group[baseline$BOR == 'Newly'] = 'Newly\ndiagnosed'
+
+table(baseline$Group)
+table(baseline$Cohort)
+
+P1 <- ggplot(baseline, aes(Group, AA.Entropy, color=Group)) +
+    geom_boxplot(outlier.shape = NA) +
+    geom_dotplot(binaxis='y', stackdir='center', dotsize=0.5, aes(fill=Group)) +
+    scale_fill_manual(values=c("#009E73", "#D55E00", "#0072B2")) +
+    scale_color_manual(values=c("#009E73", "#D55E00", "#0072B2")) +
+    xlab('') +
+    ylab('TCR repertoire diversity') +
+    scale_y_continuous(limits = c(5,21)) +
+    stat_compare_means(comparisons = list(c(2,3), c(1,2), c(1,3)), method="wilcox.test",
+                       method.args = list(alternative = "greater")) +
+    theme_pubr() +
+    theme(legend.position = 'none')
+
+pdf(paste0('outputs/Fig1e.TCR_diversity_CD8.pdf'), height=4, width=3.5)
+P1
+dev.off()
+P1
+
+baseline$Group = sub('\\n', ' ', baseline$Group)
+write.csv(baseline[, c('ZID', 'Group', 'AA.Entropy')], file = 'outputs/SourceData.Fig1e.csv', row.names = F)
+```
+
+
+```{r}
+new = tab[(tab$Time == 'C1D1') & (tab$Cell.Type == 'CD4'), ]
+new$Group = as.character(new$BOR)
+new$Group[new$Group == 'CR' & new$Interval == 'ASCT >=1year'] = 'CR\nASCT>=1yr'
+new$Group[new$Group == 'CR' & new$Interval == 'ASCT < 1year'] = 'CR\nASCT<1yr'
+new$Group[new$Group == 'PR' & new$Interval == 'ASCT >=1year'] = 'PR\nASCT>=1yr'
+new$Group[new$Group == 'PR' & new$Interval == 'ASCT < 1year'] = 'PR\nASCT<1yr'
+new$Group[new$Group == 'PD' & new$Interval == 'ASCT >=1year'] = 'PD\nASCT>=1yr'
+new$Group[new$Group == 'PD' & new$Interval == 'ASCT < 1year'] = 'PD\nASCT<1yr'
+
+new$Samples = new$Group
+new$Samples[new$Interval == 'ASCT >=1year'] = 'ASCT>=1yr'
+new$Samples[new$Interval == 'ASCT < 1year'] = 'ASCT<1yr'
+new$Samples = factor(new$Samples, c('Donor', 'Newly', 'ASCT>=1yr', 'ASCT<1yr'))
+
+new$Group = factor(new$Group, c('Donor', 'Newly', 'CR\nASCT>=1yr', 'PR\nASCT>=1yr', 'PD\nASCT>=1yr',
+                                'CR\nASCT<1yr', 'PR\nASCT<1yr', 'PD\nASCT<1yr'))
+levels(new$Group)[1] = 'Healthy\ndonors'
+levels(new$Group)[2] = 'Newly\ndiagnosed'
+levels(new$Cohort)[5] = 'Newly diagnosed'
+levels(new$Cohort)[6] = 'Healthy donors'
+
+baseline = new[new$BOR != 'Donor', ]
+
+P1 <- ggplot(baseline, aes(Group, AA.Entropy)) + 
+    theme_classic() +
+    geom_boxplot(outlier.shape = NA) +
+    geom_dotplot(binaxis='y', stackdir='center', dotsize=0.8, aes(color=Samples, fill=Samples)) +
+    scale_color_manual(values=c("#D55E00", "#0072B2", "#0072B2")) +
+    scale_fill_manual(values=c("#D55E00", "#0072B2", "#EEEEEE")) +
+    scale_y_continuous(limits = c(5,21)) +
+    stat_compare_means(comparisons = list(c(1,2), c(2,3), c(2,4), c(1,3), c(1,4)), method="wilcox.test",
+                       method.args = list(alternative = "greater")) +
+    xlab('') +
+    ylab('TCR repertoire diversity') +
+    theme(legend.position = 'none')
+
+pdf(paste0('outputs/Fig1d.TCR_diversity_BOR_CD4.pdf'), height=4, width=4)
+P1
+dev.off()
+P1
+
+baseline$Group = sub('\\n', ' ', baseline$Group)
+write.csv(baseline[, c('ZID', 'Group', 'Samples', 'AA.Entropy')], file = 'outputs/SourceData.Fig1d.csv', row.names = F)
+```
+
+
+```{r}
+new = tab[(tab$Time == 'C1D1') & (tab$Cell.Type == 'CD8'), ]
+new$Group = as.character(new$BOR)
+new$Group[new$Group == 'CR' & new$Interval == 'ASCT >=1year'] = 'CR\nASCT>=1yr'
+new$Group[new$Group == 'CR' & new$Interval == 'ASCT < 1year'] = 'CR\nASCT<1yr'
+new$Group[new$Group == 'PR' & new$Interval == 'ASCT >=1year'] = 'PR\nASCT>=1yr'
+new$Group[new$Group == 'PR' & new$Interval == 'ASCT < 1year'] = 'PR\nASCT<1yr'
+new$Group[new$Group == 'PD' & new$Interval == 'ASCT >=1year'] = 'PD\nASCT>=1yr'
+new$Group[new$Group == 'PD' & new$Interval == 'ASCT < 1year'] = 'PD\nASCT<1yr'
+
+new$Samples = new$Group
+new$Samples[new$Interval == 'ASCT >=1year'] = 'ASCT>=1yr'
+new$Samples[new$Interval == 'ASCT < 1year'] = 'ASCT<1yr'
+new$Samples = factor(new$Samples, c('Donor', 'Newly', 'ASCT>=1yr', 'ASCT<1yr'))
+
+new$Group = factor(new$Group, c('Donor', 'Newly', 'CR\nASCT>=1yr', 'PR\nASCT>=1yr', 'PD\nASCT>=1yr',
+                                'CR\nASCT<1yr', 'PR\nASCT<1yr', 'PD\nASCT<1yr'))
+levels(new$Group)[1] = 'Healthy\ndonors'
+levels(new$Group)[2] = 'Newly\ndiagnosed'
+levels(new$Cohort)[5] = 'Newly diagnosed'
+levels(new$Cohort)[6] = 'Healthy donors'
+
+baseline = new[new$BOR != 'Donor', ]
+
+P1 <- ggplot(baseline, aes(Group, AA.Entropy)) + 
+    theme_classic() +
+    geom_boxplot(outlier.shape = NA) +
+    geom_dotplot(binaxis='y', stackdir='center', dotsize=0.8, aes(color=Samples, fill=Samples)) +
+    scale_color_manual(values=c("#D55E00", "#0072B2", "#0072B2")) +
+    scale_fill_manual(values=c("#D55E00", "#0072B2", "#EEEEEE")) +
+    scale_y_continuous(limits = c(5,21)) +
+    stat_compare_means(comparisons = list(c(1,2), c(2,3), c(2,4), c(1,3), c(1,4)), method="wilcox.test",
+                       method.args = list(alternative = "greater")) +
+    xlab('') +
+    ylab('TCR repertoire diversity') +
+    theme(legend.position = 'none')
+
+pdf(paste0('outputs/Fig1f.TCR_diversity_BOR_CD8.pdf'), height=4, width=4)
+P1
+dev.off()
+P1
+
+baseline$Group = sub('\\n', ' ', baseline$Group)
+write.csv(baseline[, c('ZID', 'Group', 'Samples', 'AA.Entropy')], file = 'outputs/SourceData.Fig1f.csv', row.names = F)
+```
+
+# Changes during the treatment
+
+```{r}
+new = tab[tab$BOR %in% c('CR','PR','PD'), c('ZID','Time','AA.Entropy','ZID.Cell','BOR','Cell.Type')]
+new$Cell.Type[new$Cell.Type == 'CD4'] = 'CD4+ only'
+new$Cell.Type[new$Cell.Type == 'CD8'] = 'CD8+ only'
+new$Cell.Type = factor(new$Cell.Type, levels=c('All T cells','CD4+ and CD8+','CD4+ only','CD8+ only'))
+
+new$BOR = factor(as.character(new$BOR), levels = c('CR','PR','PD'))
+new$PRPD = as.character(new$BOR)
+new$PRPD[new$BOR %in% c('PR','PD')] = 'PR/PD'
+
+P1 <- ggpaired(new, x = "Time", y = "AA.Entropy", id = "ZID.Cell",
+         color = "Time", line.color = "gray", line.size = 0.4) +
+    stat_compare_means(paired = TRUE, label = 'p.format') +
+    scale_y_continuous(limits = c(5, 18)) +
+    facet_grid(.~Cell.Type) +
+    xlab('') +
+    ylab('TCR Repertoire Diversity') +
+    theme_pubr() +
+    theme(legend.position = 'none')
+
+P2 <- ggpaired(new, x = "Time", y = "AA.Entropy", id = "ZID.Cell",
+         color = "Time", line.color = "gray", line.size = 0.4) +
+    stat_compare_means(paired = TRUE, label = 'p.format') +
+    scale_y_continuous(limits = c(5, 18)) +
+    facet_grid(BOR~Cell.Type) +
+    xlab('') +
+    ylab('TCR Repertoire Diversity') +
+    theme_pubr() +
+    theme(legend.position = 'none')
+
+
+P1
+pdf('outputs/Fig1g.Sorted_diversity.pdf', height = 4, width = 4)
+P1
+dev.off()
+
+P2
+pdf('outputs/Fig1h.Sorted_diversity_BOR.pdf', height = 5, width = 5)
+P2
+dev.off()
+
+write.csv(new[, c('ZID', 'Time', 'BOR', 'Cell.Type', 'AA.Entropy')], file = 'outputs/SourceData.Fig1g-h.csv', row.names = F)
+```
+
+## Check MHC status
+
+```{r}
+sample_list = read.csv('../../cd4-cd8-batch/CD4_CD8_sorted_samples.csv', stringsAsFactors = F)
+
+new = tab[tab$BOR %in% c('CR','PR','PD'), c('ZID','Time','AA.Entropy','ZID.Cell','BOR','Cell.Type')]
+new$Cell.Type[new$Cell.Type == 'CD4'] = 'CD4+ only'
+new$Cell.Type[new$Cell.Type == 'CD8'] = 'CD8+ only'
+new$Cell.Type = factor(new$Cell.Type, levels=c('CD4+ and CD8+','CD4+ only','CD8+ only'))
+new$BOR = factor(new$BOR, levels = c('CR','PR','PD'))
+
+new$ZID = as.character(new$ZID)
+new$MHC.I = sample_list$MHC.I[match(new$ZID, sample_list$ZID)]
+new$MHC.II = sample_list$MHC.II[match(new$ZID, sample_list$ZID)]
+
+new$MHC = 'Unknown'
+new$MHC2 = 'Unknown'
+
+### Case 1
+new$MHC[new$MHC.I %in% c('positive', 'decreased') & new$MHC.II %in% c('positive', 'decreased')] = 'mhcI+ mhcII+'
+new$MHC[new$MHC.I %in% c('positive', 'decreased') & new$MHC.II == 'negative'] = 'mhcI+ mhcII-'
+new$MHC[new$MHC.I == 'negative' & new$MHC.II %in% c('positive', 'decreased')] = 'mhcI- mhcII+'
+new$MHC[new$MHC.I == 'negative' & new$MHC.II == 'negative'] = 'mhcI- mhcII-'
+
+### Case 2
+new$MHC2[new$MHC.II %in% c('positive', 'decreased')] = 'mhcII+'
+new$MHC2[new$MHC.II == 'negative'] = 'mhcII-'
+
+P1 <- ggpaired(new, x = "Time", y = "AA.Entropy", id = "ZID.Cell", color = "Time", line.color = "gray", line.size = 0.4) +
+    stat_compare_means(paired = TRUE, label = 'p.format', method='wilcox.test', method.args = list(alternative = "greater")) +
+    scale_y_continuous(limits = c(5, 20)) +
+    facet_grid(MHC~Cell.Type) +
+    xlab('') +
+    ylab('TCR Repertoire Diversity') +
+    theme_pubr() +
+    theme(legend.position = 'none')
+
+P2 <- ggpaired(new[new$MHC2 != 'Unknown', ], x = "Time", y = "AA.Entropy", id = "ZID.Cell", 
+               color = "Time", line.color = "gray", line.size = 0.4, method.args = list(alternative = "greater")) +
+    stat_compare_means(paired = TRUE, label = 'p.format') +
+    scale_y_continuous(limits = c(5, 20)) +
+    facet_grid(MHC2~Cell.Type) +
+    xlab('') +
+    ylab('TCR Repertoire Diversity') +
+    theme_pubr() +
+    theme(legend.position = 'none')
+
+P1
+pdf('outputs/Ext_Fig1i.Diversity-mhc-diff.pdf', height = 7, width = 4.5)
+P1
+dev.off()
+
+P2
+pdf('outputs/Ext_Fig1j.Diversity-mhcII-sep.pdf', height = 4.5, width = 4.5)
+P2
+dev.off()
+
+write.csv(new[, c('ZID', 'Time', 'AA.Entropy', 'Cell.Type', 'MHC', 'MHC2')], file = 'outputs/SourceData.Ext_Fig1i-j.csv', row.names = F)
+```
+

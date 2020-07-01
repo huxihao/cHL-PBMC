@@ -4,8 +4,19 @@ import gzip
 import cPickle as pickle
 
 import numpy as np
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_pdf import PdfPages
+import seaborn as sns
 import pandas as pd
+from scipy.optimize import bisect
 
+parser = argparse.ArgumentParser()
+parser.add_argument('--datapath', type=str, default='../tcrseq-analysis/', help='Data path')
+parser.add_argument('--workpath', type=str, default='./work/', help='Work path')
+
+args = parser.parse_args()
 
 def read_vdj(filename, count=False, use_dna=False):
     if filename.endswith('.txt'):
@@ -21,8 +32,8 @@ def read_vdj(filename, count=False, use_dna=False):
             continue
         dna = ele[2]
         aa = ele[3]
-        v = ele[4].split('*')[0]
-        j = ele[6].split('*')[0]
+        v = ele[4] #.split('*')[0]
+        j = ele[6] #.split('*')[0]
         if '*' in aa or '_' in aa: ## in-frame
             continue
         if not (v.startswith('TRBV') and j.startswith('TRBJ')):
@@ -101,6 +112,11 @@ def KL_divergence(a,b):
 def JS_divergence(a,b):
     return (KL_divergence(a,b)+KL_divergence(b,a))*0.5
 
+def get_top_avg(a, top=1):
+    a = np.array(a)
+    cut = np.percentile(a, 100-top)
+    return a[a >= cut].mean()
+
 def clonal_expansion(meta_file,
                      data_path='../data/DanaFarberShipp2018May_clean/', 
                      out_clone='../work/_expanded_clones.csv.gz',
@@ -113,7 +129,7 @@ def clonal_expansion(meta_file,
     ## read repertoire for each patient
     patients = {}
     for f in os.listdir(data_path):
-        if '_SD_' not in f and f.endswith('.txt.gz') and 'gt1yr' in f: ## only choose patient with ASCT > 1 year
+        if f.endswith('.txt.gz') and 'gt1yr' in f: ## only choose patient with ASCT > 1 year
             ele = f.split('_')
             if len(ele) != 4:
                 continue
@@ -147,6 +163,8 @@ def clonal_expansion(meta_file,
 
         ## check all clones
         all_fold = []
+        nai_fold1, nai_fold2 = [], []
+        mem_fold1, mem_fold2 = [], []
         expand_naive = set()
         expand_memory = set()
         for vdj in pool:
@@ -156,18 +174,24 @@ def clonal_expansion(meta_file,
             else:
                 base = pr[vdj] / float(tr)
             ## maximum fold change
-            fold = max(p1.get(vdj,0)/float(t1)/base, p2.get(vdj,0)/float(t2)/base)
-            collect_fold.append(fold)
+            fold1 = p1.get(vdj,0)/float(t1)/base
+            fold2 = p2.get(vdj,0)/float(t2)/base
+            fold = max(fold1, fold2)
 
-            if fold > 0:
-                all_fold.append(fold)
-            if fold >= 2: ## expansion definition
+            all_fold.append(fold)
+
+            if fold >= 2: ## use 2 for clear definition
                 if vdj not in pr or pr[vdj] <= 1: ## one or less
+                    nai_fold1.append(fold1)
+                    nai_fold2.append(fold2)
                     expand_naive.add(vdj)
                     save_clones.write('%s,%s,%s,'%vdj+'%s,Naive,%s,%s\n'%(pid, base, fold))
                 else:
+                    mem_fold1.append(fold1)
+                    mem_fold2.append(fold2)
                     expand_memory.add(vdj)
                     save_clones.write('%s,%s,%s,'%vdj+'%s,Memory,%s,%s\n'%(pid, base, fold))
+        collect_fold += all_fold
 
         ## I: Time, F: file, P: clone counts, PS: clones, T: total counts
         for I, F, P, PS, T in [('Pre',   pre,   pr, pr_set, tr), 
@@ -191,7 +215,30 @@ def clonal_expansion(meta_file,
                     len(expand_naive & PS) / float(len(PS)),
                     sum([P[i] for i in P if i in expand_naive]) / T,
                     len(expand_memory & PS) / float(len(PS)),
-                    sum([P[i] for i in P if i in expand_memory]) / T])
+                    sum([P[i] for i in P if i in expand_memory]) / T,
+                    np.mean([max(i,j) for i,j in zip(nai_fold1, nai_fold2)]),
+                    np.mean([max(i,j) for i,j in zip(mem_fold1, mem_fold2)]),
+                    np.max(nai_fold1),
+                    np.max(nai_fold2),
+                    np.max(mem_fold1),
+                    np.max(mem_fold2),
+                    get_top_avg(nai_fold1, 1),
+                    get_top_avg(nai_fold2, 1),
+                    get_top_avg(mem_fold1, 1),
+                    get_top_avg(mem_fold2, 1),
+                    get_top_avg(nai_fold1, 2),
+                    get_top_avg(nai_fold2, 2),
+                    get_top_avg(mem_fold1, 2),
+                    get_top_avg(mem_fold2, 2),
+                    get_top_avg(nai_fold1, 0.1),
+                    get_top_avg(nai_fold2, 0.1),
+                    get_top_avg(mem_fold1, 0.1),
+                    get_top_avg(mem_fold2, 0.1),
+                    get_top_avg(nai_fold1, 0.01),
+                    get_top_avg(nai_fold2, 0.01),
+                    get_top_avg(mem_fold1, 0.01),
+                    get_top_avg(mem_fold2, 0.01)
+                ])
 
     save_clones.close()
     np.savetxt(out_clone+'.all_fold.gz', np.array(collect_fold))
@@ -209,17 +256,34 @@ def clonal_expansion(meta_file,
                     'Expanded.Naive.Clonotype.Ratio',
                     'Expanded.Naive.Clone.Ratio',
                     'Expanded.Memory.Clonotype.Ratio',
-                    'Expanded.Memory.Clone.Ratio'])
+                    'Expanded.Memory.Clone.Ratio',
+                    'Expanded.Naive.Fold.Mean',
+                    'Expanded.Memory.Fold.Mean',
+                    'Expanded.Naive.Fold1.Max',
+                    'Expanded.Naive.Fold2.Max',
+                    'Expanded.Memory.Fold1.Max',
+                    'Expanded.Memory.Fold2.Max',
+                    'Expanded.Naive.Fold1.Top1',
+                    'Expanded.Naive.Fold2.Top1',
+                    'Expanded.Memory.Fold1.Top1',
+                    'Expanded.Memory.Fold2.Top1',
+                    'Expanded.Naive.Fold1.Top2',
+                    'Expanded.Naive.Fold2.Top2',
+                    'Expanded.Memory.Fold1.Top2',
+                    'Expanded.Memory.Fold2.Top2',
+                    'Expanded.Naive.Fold1.Top01',
+                    'Expanded.Naive.Fold2.Top01',
+                    'Expanded.Memory.Fold1.Top01',
+                    'Expanded.Memory.Fold2.Top01',
+                    'Expanded.Naive.Fold1.Top001',
+                    'Expanded.Naive.Fold2.Top001',
+                    'Expanded.Memory.Fold1.Top001',
+                    'Expanded.Memory.Fold2.Top001'
+                ])
     summary.to_csv(out_table)
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--datapath', type=str, default='../../tcrseq-analysis/', help='Data path')
-    parser.add_argument('--workpath', type=str, default='./work/', help='Work path')
-
-    args = parser.parse_args()
-
     clonal_expansion(meta_file=args.datapath+'PBMC_PFS_2018Sep.csv',
                      data_path=args.datapath+'DanaFarberShipp2018May_clean/', 
                      out_clone=args.workpath+'expanded_clones.csv.gz',

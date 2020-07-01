@@ -1,0 +1,32 @@
+# Distribution of the overall clonal expansion levels
+
+## Load data
+
+```{r}
+library(ggplot2)
+library(ggpubr)
+
+all_fold = read.csv('../../tcrseq-analysis/work/expanded_clones.csv.gz.all_fold.gz', header = F)
+colnames(all_fold) = c('Fold')
+enrich = read.csv('../../tcrseq-analysis/work/expanded_clones.csv.gz')
+
+P1 <- ggplot(enrich, aes(log2(Fold))) +
+    geom_histogram(data = all_fold, binwidth = 0.1, fill='green', alpha=0.5) +
+    geom_histogram(binwidth = 0.1, fill='blue', alpha=0.5) +
+    scale_x_continuous(limits = c(-5,5)) +
+    geom_vline(xintercept=log2(2), linetype="dashed", color = "red") +
+    theme_pubr()
+
+print(paste(nrow(enrich[enrich$Fold >= 2, ]), 'out of', length(all_fold$Fold)))
+
+pdf('outputs/Fig2c.Clone_expand_dist.pdf', height = 3, width = 4)
+P1
+dev.off()
+P1
+
+counts = as.data.frame(table(round(log2(all_fold$Fold), 1)))
+colnames(counts) = c('Log2FoldChange', 'NumberOfClonotypes')
+write.csv(counts[counts$Log2FoldChange != '-Inf', ], file = 'outputs/SourceData.Fig2c.csv', row.names = F)
+```
+
+

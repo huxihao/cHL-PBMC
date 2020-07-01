@@ -1,0 +1,176 @@
+# PD1 expression of cell populations in VorteX clusters
+
+## Load all data
+
+```{r}
+datapath = '../../vortex-analysis/heatmap-in-manuscript/'
+
+cols = c('X', 'CD56', 'CD16', 'CD57', 'GranzymeB', 'CD161', 'EOMES')
+rows = c(6634, 6683, 6630, 6617, 6632, 6616, 720, 725, 714, 735)
+
+data = NULL
+for(f in list.files(datapath, pattern = '.*CD3-.*all_values.csv$', full.names = T)) {
+    tab = read.csv(f, header = T)
+    print(paste(f, setdiff(cols, colnames(tab))))
+    tab = tab[, cols]
+    if (is.null(data)) 
+        data = tab
+    else
+        data = rbind(data, tab)
+}
+subset = data[match(as.character(rows), data$X), ]
+head(subset)
+```
+
+## Check the PD1 expression on effective T cells
+
+```{r}
+clusters = list(
+        c('7497', 'CD4 Th17 CXCR5+ CM'),
+        c('7525', 'CD4 Th0 CXCR5+ CM'),
+        c('7508', 'CD4 Th2 CM (1)'),
+        c('7514', 'CD4 Th17 CM'),
+        c('7507', 'CD4 CD161+ EM'),
+        c('7529', 'CD4 Th2 EM'),
+        c('7513', 'CD8 Treg'),
+        c('7495', 'CD4 Treg'),
+        c('7503', 'CD4 Treg'),
+        c('7505', 'Other'),
+        c('7524', 'CD4 Naive'),
+        c('7520', 'CD8 Naive'),
+        c('7521', 'CD4 Naive'),
+        c('7522', 'CD4 Naive'),
+        c('7488', 'Not T cell'),
+        c('7530', 'CD8 Naive'),
+        c('7515', 'DN MAIT (1)'),
+        c('7493', 'CD4 Th1 EM GrB+'),
+        c('7518', 'CD4 Th1 Temra GrB+'),
+        c('7516', 'CD8 Tc1 Temra (1)'),
+        c('7523', 'CD8 Tc1 Temra (1)'),
+        c('7517', 'CD4 non-classical Th1 EM GrB+'),
+        c('7499', 'CD8 CD161+'),
+        c('7502', 'DN MAIT (2)'),
+        c('7487', 'Not T cell'),
+        c('7492', 'CD8 Tc1 Temra (3)'),
+        c('7510', 'CD8 Tc1 Temra (2)'),
+        c('7489', 'CD8 Tc1 EM (1)'),
+        c('7490', 'CD8 Tc1 EM (1)'),
+        c('5703', 'CD8 CD161+'),
+        c('5706', 'DN MAIT (2)'),
+        c('5711', 'CD8 Tc1 Temra (2)'),
+        c('5731', 'CD8 Tc1 Temra (1)'),
+        c('5723', 'CD8 Tc1 EM (1)'),
+        c('5724', 'CD8 Tc1 EM (1)'),
+        c('5704', 'CD4 non-classical Th1 EM GrB+'),
+        c('5732', 'CD4 Th1 EM GrB+'),
+        c('5737', 'CD8 Treg'),
+        c('5700', 'CD4 Treg'),
+        c('5707', 'CD4 Th2 EM'),
+        c('5740', 'CD4 Th2-like EM'),
+        c('5739', 'CD4 Th17 CXCR5+ CM'),
+        c('5708', 'CD4 Th17 CM'),
+        c('5710', 'CD4 Th2 CM (1)'),
+        c('5721', 'CD8 Tc1 EM (2)'),
+        c('5734', 'CD4 Th2 CM (2)'),
+        c('5712', 'CD4 Naïve'),
+        c('5713', 'CD4 Naïve'),
+        c('5702', 'CD4 Naïve'),
+        c('5705', 'CD8 Naïve'))
+
+df <- data.frame(matrix(unlist(clusters), nrow=length(clusters), byrow=T))
+df$X1 = as.character(df$X1)
+df$X2 = as.character(df$X2)
+
+cols = c('X', 'PD-1', 'CCR4', 'CD45RO', 'CD4', 'CD8')
+
+data = NULL
+for(f in list.files(datapath, pattern = '.*CD3+.*sel_values.csv$', full.names = T)) {
+    tab = read.csv(f, header = T)
+    colnames(tab) = gsub('[.]','-', colnames(tab))
+    print(setdiff(cols, colnames(tab)))
+    tab = tab[, cols]
+    tab$Case = gsub('.+(CD3.+) - .+', '\\1', f)
+    if (is.null(data)) 
+        data = tab
+    else
+        data = rbind(data, tab)
+}
+subset = data[match(df$X1, data$X), ]
+subset$name = df$X2
+subset = subset[subset$`PD-1` > 0, ]
+head(subset)
+```
+
+## Load the raw expression values
+
+```{r}
+inputs = c('../../vortex-analysis/vortex-in-manuscript/HDvsCD_CD3+_12k_Apr2019_allSCs.csv.gz', 
+           '../../vortex-analysis/vortex-in-manuscript/CDvsRR_CD3+_allSCs.csv.gz')
+output = NULL
+
+for(f in inputs) {
+    dataFromXshift = read.table(f, sep=',', header=T)
+    dataFromXshift$Event.Name = NULL
+    dataFromXshift$Comment = NULL
+    
+    colnames(dataFromXshift)=gsub("MHC_I","MHC.I",colnames(dataFromXshift))
+    colnames(dataFromXshift)=gsub("MHCII","MHC.II",colnames(dataFromXshift))
+    colnames(dataFromXshift)=gsub("^.+?_([^_]+)$","\\1",colnames(dataFromXshift))
+    colnames(dataFromXshift)=gsub("c.Parp","cParp",colnames(dataFromXshift))
+    colnames(dataFromXshift)=gsub("HLA.a.b.c","HLAabc",colnames(dataFromXshift))
+    colnames(dataFromXshift)=gsub("[._]","-",colnames(dataFromXshift))
+    
+    dataFromXshift = dataFromXshift[dataFromXshift$ClusterID %in% subset$X,]
+    pd1_cluster_files = aggregate(`PD-1` ~ ClusterID + `File-Name`, dataFromXshift, median)
+    pd1_cluster_files$source = f
+    if(is.null(output))
+        output = pd1_cluster_files
+    else
+        output = rbind(output, pd1_cluster_files)
+}
+```
+
+## Draw the difference
+
+```{r}
+library(ggplot2)
+library(ggpubr)
+
+output$Cluster = paste(subset$name[match(as.character(output$ClusterID), subset$X)])
+
+output$Group = 'Donor'
+output$Group[grepl('^BMS_P[0-9]+.+$', output$`File-Name`)] = 'Newly'
+output$Group[grepl('^RR_P[0-9]+.+$', output$`File-Name`)] = 'R/R'
+output$Group[grepl('^CD_P[0-9]+.+$', output$`File-Name`)] = 'Newly'
+output$Group = factor(output$Group, levels=c('Newly','Donor','R/R'))
+output$source = factor(output$source, levels = unique(output$source))
+
+symp <- list(cutpoints = c(0, 0.0001, 0.001, 0.01, 0.05, 1), symbols = c("****", "***", "**", "*", ""))
+output$Cluster = factor(output$Cluster, levels = c('CD4 Th2 CM (1)',
+                                                   'CD4 Th17 CM',
+                                                   'CD4 Th1 EM GrB+',
+                                                   'CD4 Th2-like EM',
+                                                   'CD4 non-classical Th1 EM GrB+',
+                                                   'CD4 Th17 CXCR5+ CM',
+                                                   'CD8 Tc1 EM (1)'))
+final = output[output$source == '../../vortex-analysis/vortex-in-manuscript/CDvsRR_CD3+_allSCs.csv.gz', ]
+
+P1 <- ggplot(final, aes(Cluster, `PD-1`, color=Group)) + 
+    theme_pubr() +
+    geom_boxplot() +
+    #stat_compare_means(aes(group = Group), method='wilcox.test', label = "p.signif", symnum.args=symp) +
+    stat_compare_means(aes(group = Group, label = ifelse(p < 0.05, sprintf("%2.1e", as.numeric(..p.format..)), '')), 
+                       method='wilcox.test', label.y.npc = 0.95) +
+    xlab('') +
+    ylab('PD-1 expression') +
+    #facet_grid(.~source) +
+    theme(strip.background = element_blank(), strip.text.x = element_blank()) +
+    coord_flip()
+
+P1
+pdf('outputs/Ext_Fig4d.median_PD1_level.pdf', height = 4, width = 6)
+P1
+dev.off()
+
+write.csv(final[, c('ClusterID', 'File-Name', 'Cluster', 'Group', 'PD-1')], file = 'outputs/SourceData.Ext_Fig4d.csv', row.names = F)
+```

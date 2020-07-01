@@ -1,4 +1,4 @@
 # Data Analyses on the cHL PBMC Data
 
-Source codes in support of paper: "The Peripheral Immune Signature Predicts Response to PD-1 Blockade in Classical Hodgkin Lymphoma"
+Source codes and raw figures in the paper: "A Peripheral Immune Signature of Responsiveness to PD-1 Blockade in patients with Classical Hodgkin Lymphoma"
 

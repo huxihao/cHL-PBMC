@@ -1,0 +1,120 @@
+# Detailed Analysis on TCR Repertoires
+
+## Load data
+
+```{r}
+library(ggplot2)
+library(ggpubr)
+library(cowplot)
+library(ggrepel)
+
+datapath = '../../cd4-cd8-batch/DanaFarberShipp2020Feb/'
+
+meta = read.csv(paste0(datapath,'_meta.csv'))
+
+metric = read.csv(paste0(datapath, '_rep_metric.txt'), sep='\t')
+clones = read.csv(paste0(datapath, '_rep_clones.txt'), sep='\t')
+metric = merge(metric, clones, by='File')
+metric$Time = factor(metric$Time, c('C1D1', 'C4D1'))
+levels(metric$Time) <- c('Pre','Post2')
+metric$Cell.Type = as.character(metric$Cell.Type)
+metric$Cell.Type[metric$Cell.Type == 'Mix'] = 'CD3'
+
+expand = read.table('../../cd4-cd8-batch/work/expanded_summary.csv', sep=',', header=T)
+cytof = read.csv('../../cd4-cd8-batch/Checkmate 205_12months data for fig 1_updated Mar 3 2020.csv')
+
+metric$ZID = as.character(metric$ZID)
+metric$Time = as.character(metric$Time)
+meta$ZID = as.character(meta$ZID)
+meta$Time = as.character(meta$Time)
+cytof$ZID = as.character(cytof$ZID)
+cytof$Time = as.character(cytof$Time)
+
+data = merge(metric, meta, by=c('ZID','Time'))
+data = merge(data, cytof, by=c('ZID','Time'), suffixes = c('','_dup'))
+data = data[data$Time == 'Pre' & data$Time.between.ASCT.and.First.Dose >= 12, ] ## only for > 1year
+data$Cell.Type[data$Cell.Type == 'CD3'] = 'CD4+ and CD8+'
+data$Cell.Type[data$Cell.Type == 'CD4'] = 'CD4+ only'
+data$Cell.Type[data$Cell.Type == 'CD8'] = 'CD8+ only'
+```
+
+## Add the bulk TCR-seq data
+
+```{r}
+old_datapath = '../../tcrseq-analysis/DanaFarberShipp2018May_clean/'
+
+old_meta = read.csv(paste0(old_datapath,'_meta.csv'))
+old_metric = read.table(paste0(old_datapath,'_rep_metric.txt'), header=T)
+old_data = merge(old_metric, old_meta, by=c('File'))
+old_data$Time = as.character(old_data$Time)
+old_data$ZID = as.character(old_data$ZID)
+old_data = merge(old_data, cytof, by=c('Time', 'ZID'), suffixes = c('','_dup'))
+old_data = old_data[old_data$Time == 'Pre' & old_data$Time.between.ASCT.and.First.Dose >= 12, ] ## only for > 1year
+old_data = old_data[old_data$BOR %in% c('CR', 'PR', 'PD'), ]
+old_data$Cell.Type = 'All T cells'
+
+shared_cols = intersect(colnames(data), colnames(old_data))
+data = rbind(data[, shared_cols], old_data[, shared_cols])
+
+data$Cell.Type = factor(data$Cell.Type, levels = c('All T cells', 'CD4+ and CD8+', 'CD4+ only', 'CD8+ only'))
+```
+                          
+## Show all correlations
+
+```{r}
+library(plyr)
+
+map_cell <- function(case) {
+    if(case == 'CD4+ only') return('CD4')
+    if(case == 'CD8+ only') return('CD8')
+    return('CD3')
+}
+
+new = NULL
+for(case in levels(data$Cell.Type)) {
+    tmp = data[data$Cell.Type == case, ]
+    tmp$TCRseq.Single.Clone.Ratio = 100 * tmp$DNA.Single / tmp$DNA.Total
+    tmp$TCRseq.Cell.Type = case
+    for(case1 in c('naive','CM','EM','TEMRA')) {
+        tmp1 = tmp
+        tmp1$CyTOF.Single.Clone.Ratio = tmp1[[paste0(map_cell(case),'_',case1,'_ratio')]]
+        tmp1$CyTOF.Cell.Type = case1
+        if(is.null(new))
+            new = tmp1
+        else
+            new = rbind(new, tmp1)
+    }
+}
+new$CyTOF.Cell.Type = factor(new$CyTOF.Cell.Type, levels=c('naive','CM','EM','TEMRA'))
+new$TCRseq.Cell.Type = factor(new$TCRseq.Cell.Type, levels=levels(data$Cell.Type))
+new = new[!is.na(new$CyTOF.Single.Clone.Ratio), ]
+
+cors <- ddply(new, .(TCRseq.Cell.Type, CyTOF.Cell.Type), summarise, 
+              cor = round(cor(CyTOF.Single.Clone.Ratio, TCRseq.Single.Clone.Ratio), 2),
+              pval = format(cor.test(CyTOF.Single.Clone.Ratio, TCRseq.Single.Clone.Ratio)$p.value, digits=1))
+
+P1 <- ggplot(new, aes(CyTOF.Single.Clone.Ratio, TCRseq.Single.Clone.Ratio)) +
+    geom_point(aes(shape=BOR)) +
+    scale_x_continuous(limits = c(0,90)) +
+    scale_y_continuous(limits = c(0,90)) +
+    scale_color_manual(values = c("#0072B2")) +
+    stat_smooth(method = "lm", formula = y ~ x, se=F) + 
+    geom_text(data=cors, aes(label=paste("r=", cor, " p=", pval, sep="")), x=50, y=90, size=3) +
+    xlab(paste0('CyTOF measured T cells')) +
+    ylab(paste0('TCR-seq measured singleton T cells')) +
+    coord_fixed() +
+    facet_grid(TCRseq.Cell.Type ~ CyTOF.Cell.Type) +
+    theme_classic()
+
+P1
+pdf(paste0('./outputs/Fig2b.CyTOF_TCRseq_all_corr.pdf'), height=6, width=8)
+P1
+dev.off()
+P1
+
+write.csv(new[, c('ZID', 'BOR', 'CyTOF.Cell.Type', 'CyTOF.Single.Clone.Ratio', 'TCRseq.Cell.Type', 'TCRseq.Single.Clone.Ratio')], file = 'outputs/SourceData.Fig2b.csv', row.names = F)
+```
+
+
+
+

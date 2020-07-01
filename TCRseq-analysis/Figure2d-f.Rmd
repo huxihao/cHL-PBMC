@@ -1,0 +1,166 @@
+# Study Expanded Clones
+
+## Load data
+
+```{r}
+library(ggplot2)
+library(ggpubr)
+library(cowplot)
+
+tab = read.table('../../cd4-cd8-batch/work/expanded_summary.csv', sep=',', header=T)
+tab$Time = factor(tab$Time, c('Pre', 'Post1', 'Post2'))
+tab = tab[tab$Time.between.ASCT.and.First.Dose >= 12, ]
+```
+
+## Compare responses by the expanded fraction
+
+```{r fig.height=4, fig.width=12}
+new = tab[tab$BOR %in% c('CR', 'PR', 'PD'), ]
+new$BOR = factor(new$BOR, c('CR', 'PR', 'PD'))
+new$Case = new$Time
+levels(new$Case) <- list("C1/D1"="Pre", "C2/D1"="Post1", "C4/D1"="Post2")
+
+print(table(new[, c('Case', 'BOR')]))
+
+P1 <- ggplot(new, aes(BOR, Expanded.Naive.Clone.Ratio, color=BOR)) + 
+    geom_boxplot(outlier.shape = NA) +
+    geom_dotplot(binaxis='y', stackdir='center', dotsize=0.5, aes(fill=BOR)) +
+    scale_y_log10(breaks=c(0.0001, 0.001, 0.01, 0.1, 1), labels = scales::percent) +
+    stat_compare_means(comparisons = list(c(2,3), c(1,2), c(1,3)), method="wilcox.test") + 
+    xlab('Best overall response') +
+    ylab('Expanded singleton T cells') +
+    facet_grid(.~Case, scales = "free", space = "free") +
+    theme_pubr() +
+    theme(legend.position = 'none')
+
+P2 <- ggplot(new, aes(BOR, Expanded.Memory.Clone.Ratio, color=BOR)) + 
+    geom_boxplot(outlier.shape = NA) +
+    geom_dotplot(binaxis='y', stackdir='center', dotsize=0.5, aes(fill=BOR)) +
+    scale_y_log10(breaks=c(0.0001, 0.001, 0.01, 0.1, 1), labels = scales::percent) +
+    stat_compare_means(comparisons = list(c(2,3), c(1,2), c(1,3)), method="wilcox.test") + 
+    xlab('Best overall response') +
+    ylab('Expanded non-singleton T cells') +
+    facet_grid(.~Case, scales = "free", space = "free") +
+    theme_pubr() +
+    theme(legend.position = 'none')
+
+new$expand.ratio = new$Expanded.Naive.Clone.Ratio / new$Expanded.Memory.Clone.Ratio
+print(paste('min =', min(new$expand.ratio), 'max =', max(new$expand.ratio)))
+
+P3 <- ggplot(new, aes(BOR, expand.ratio, color=BOR)) + 
+    geom_boxplot(outlier.shape = NA) +
+    geom_dotplot(binaxis='y', stackdir='center', dotsize=0.5, aes(fill=BOR)) +
+    scale_y_log10(breaks=c(0.01,0.1,1,10,100,1000)) +
+    stat_compare_means(comparisons = list(c(2,3), c(1,2), c(1,3)), method="wilcox.test") + 
+    ylab('Expanded singleton/ non-singleton T cells') +
+    xlab('Best overall response') +
+    facet_grid(.~Case, scales = "free", space = "free") +
+    theme_pubr() +
+    theme(legend.position = 'none')
+
+plot_grid(P1, P2, P3, nrow=1)
+pdf('outputs/Fig2d-f.Expanded_clones.pdf', height = 4, width = 12)
+plot_grid(P1, P2, P3, nrow=1)
+dev.off()
+
+new$expand.singleton = new$Expanded.Naive.Clone.Ratio
+new$expand.nonsingleton = new$Expanded.Memory.Clone.Ratio
+write.csv(new[, c('ZID', 'BOR', 'Case', 'expand.singleton', 'expand.nonsingleton', 'expand.ratio')], file = 'outputs/SourceData.Fig2d-f.csv', row.names = F)
+```
+
+## Check the maximum fold changes
+
+```{r}
+new$max.expand.ratio = new$Expanded.Naive.Fold.Max / new$Expanded.Memory.Fold.Max
+baseline = new[new$Case == 'C1/D1',]
+
+print(table(baseline$BOR))
+
+P3 <- ggplot(baseline, aes(BOR, max.expand.ratio, color=BOR)) + 
+    geom_boxplot(outlier.shape = NA) +
+    geom_dotplot(binaxis='y', stackdir='center', dotsize=0.5, aes(fill=BOR)) +
+    scale_y_log10(breaks=c(0.1,0,1,10,100)) +
+    stat_compare_means(comparisons = list(c(2,3), c(1,2), c(1,3)), method="wilcox.test") + 
+    ylab('Max. expanded singleton/ non-singleton T cells') +
+    xlab('Best overall response') +
+    theme_pubr() +
+    theme(legend.position = 'none')
+
+P3
+pdf('outputs/Ext_Fig1k.Max_expanded.pdf', height = 4, width = 3)
+P3
+dev.off()
+
+write.csv(baseline[, c('ZID', 'BOR', 'Case', 'max.expand.ratio')], file = 'outputs/SourceData.Ext_Fig1k.csv', row.names = F)
+```
+
+## Compare responses by expanded fraction in CD4 or CD8 cells
+
+```{r}
+CASE = 'CD4.Clone'  # Clone, CD4.Clone, CD8.Clone
+
+new = tab[tab$BOR %in% c('CR', 'PR', 'PD'), ]
+new$BOR = factor(new$BOR, c('CR', 'PR', 'PD'))
+new$Case = new$Time
+levels(new$Case) <- list("C1/D1"="Pre", "C2/D1"="Post1", "C4/D1"="Post2")
+
+print(table(new[, c('Case', 'BOR')]))
+new$Expanded.Naive.Clone.Ratio = new[[paste0('Expanded.Naive.',CASE,'.Ratio')]]
+new$Expanded.Memory.Clone.Ratio = new[[paste0('Expanded.Memory.',CASE,'.Ratio')]]
+
+new$expand.ratio = (new$Expanded.Naive.Clone.Ratio + 1e-4) / (new$Expanded.Memory.Clone.Ratio + 1e-4)
+
+P3 <- ggplot(new, aes(BOR, expand.ratio, color=BOR)) + 
+    geom_boxplot(outlier.shape = NA) +
+    geom_dotplot(binaxis='y', stackdir='center', dotsize=0.5, aes(fill=BOR)) +
+    scale_y_log10(limits=c(0.005, 1000), breaks=c(0.001,0.01,0.1,1,10,100,1000)) +
+    stat_compare_means(comparisons = list(c(2,3), c(1,2), c(1,3)), method="wilcox.test", 
+                       method.args = list(alternative = "greater")) +
+    ylab('Expanded singleton/ non-singleton T cells') +
+    xlab('Best overall response') +
+    facet_grid(.~Case, scales = "free", space = "free") +
+    theme_pubr() +
+    theme(legend.position = 'none')
+
+P3
+pdf(paste0('outputs/Ext_Fig1l.Expanded_',CASE,'.pdf'), height = 4, width = 5)
+P3
+dev.off()
+
+write.csv(new[, c('ZID', 'BOR', 'Case', 'expand.ratio')], file = 'outputs/SourceData.Ext_Fig1l.csv', row.names = F)
+```
+
+```{r}
+CASE = 'CD8.Clone'  # Clone, CD4.Clone, CD8.Clone
+
+new = tab[tab$BOR %in% c('CR', 'PR', 'PD'), ]
+new$BOR = factor(new$BOR, c('CR', 'PR', 'PD'))
+new$Case = new$Time
+levels(new$Case) <- list("C1/D1"="Pre", "C2/D1"="Post1", "C4/D1"="Post2")
+
+print(table(new[, c('Case', 'BOR')]))
+new$Expanded.Naive.Clone.Ratio = new[[paste0('Expanded.Naive.',CASE,'.Ratio')]]
+new$Expanded.Memory.Clone.Ratio = new[[paste0('Expanded.Memory.',CASE,'.Ratio')]]
+
+new$expand.ratio = (new$Expanded.Naive.Clone.Ratio + 1e-4) / (new$Expanded.Memory.Clone.Ratio + 1e-4)
+
+P3 <- ggplot(new, aes(BOR, expand.ratio, color=BOR)) + 
+    geom_boxplot(outlier.shape = NA) +
+    geom_dotplot(binaxis='y', stackdir='center', dotsize=0.5, aes(fill=BOR)) +
+    scale_y_log10(limits=c(0.005, 1000), breaks=c(0.001,0.01,0.1,1,10,100,1000)) +
+    stat_compare_means(comparisons = list(c(2,3), c(1,2), c(1,3)), method="wilcox.test", 
+                       method.args = list(alternative = "greater")) +
+    ylab('Expanded singleton/ non-singleton T cells') +
+    xlab('Best overall response') +
+    facet_grid(.~Case, scales = "free", space = "free") +
+    theme_pubr() +
+    theme(legend.position = 'none')
+
+P3
+pdf(paste0('outputs/Ext_Fig1m.Expanded_',CASE,'.pdf'), height = 4, width = 5)
+P3
+dev.off()
+
+write.csv(new[, c('ZID', 'BOR', 'Case', 'expand.ratio')], file = 'outputs/SourceData.Ext_Fig1m.csv', row.names = F)
+```
+

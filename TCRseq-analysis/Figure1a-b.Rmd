@@ -1,0 +1,188 @@
+# Unsorted TCR-seq statistics
+
+## Load library and data
+
+```{r}
+library(ggplot2)
+library(ggpubr)
+library(cowplot)
+library(ggpmisc)
+
+datapath = '../../tcrseq-analysis/DanaFarberShipp2018May_clean/'
+tab = read.table(paste0(datapath, '_rep_metric.txt'), header=T)
+meta = read.csv(paste0(datapath, '_meta.csv'))
+tab = merge(tab, meta, by='File')
+```
+
+## Clean up data
+
+```{r}
+tab = tab[tab$BOR != 'SD',] ## remove SD
+tab = tab[tab$BOR != 'NewErr',] ## remove Error
+tab = tab[tab$BOR != 'NE',] ## remove NE
+tab = tab[tab$BOR != 'DonorOld',] ## remove Old
+
+tab$Type = as.character(tab$BOR)
+tab$Type[tab$Cohort_new == 'D'] = 'Newly'
+tab$Type[tab$Cohort_new == 'Donor'] = 'Donor'
+tab$Type = factor(tab$Type, levels=c('CR', 'PR', 'SD', 'PD', 'Newly', 'Donor'))
+tab$Time = factor(tab$Time, levels=c('Pre', 'Post1', 'Post2'))
+tab$Interval = 'N/A'
+tab$Interval[tab$Time.between.ASCT.and.First.Dose < 12] = 'ASCT < 1year'
+tab$Interval[tab$Time.between.ASCT.and.First.Dose >= 12] = 'ASCT >=1year'
+tab$Interval = factor(tab$Interval, levels=c('ASCT < 1year', 'ASCT >=1year', 'N/A'))
+tab$Cohort = paste('Cohort-', as.character(tab$Cohort_new), sep='')
+tab$Cohort[tab$Cohort == 'Cohort-Donor'] = 'Donor'
+tab$Cohort[tab$Cohort == 'Cohort-C-BT'] = 'Cohort-C'
+tab$Cohort[tab$Cohort == 'Cohort-C-TB'] = 'Cohort-C'
+tab$Cohort = as.factor(tab$Cohort)
+
+tab$Progress = 'Unknown'
+tab$Progress[tab$PFS.index == 0] = 'False'
+tab$Progress[tab$PFS.index == 1] = 'True'
+tab$Progress = factor(tab$Progress, c('Unknown', 'True', 'False'))
+
+tab$PFS.gt.1yr = 'NA'
+tab$PFS.gt.1yr[tab$PFS <= 12] = 'False'
+tab$PFS.gt.1yr[tab$PFS > 12] = 'True'
+tab$PFS.gt.1yr = factor(tab$PFS.gt.1yr, c('True', 'False', 'NA'))
+
+tab$BOR = factor(tab$BOR, levels=c('Donor', 'Newly', 'CR', 'PR', 'SD', 'PD'))
+tab$Type = factor(tab$Type, levels=c('CR','PD','PR','SD','Donor','Newly'))
+
+print(nrow(tab))
+table(tab$Cohort_new, tab$Time)
+
+tab$PID = paste0('P',tab$ZID)
+```
+
+## Differet types of patients
+
+```{r}
+baseline = tab[tab$Time == 'Pre', ]
+baseline$Group = 'Relapsed/\nRefractory'
+baseline$Group[baseline$Type == 'Donor'] = 'Healthy\nDonors'
+baseline$Group[baseline$Type == 'Newly'] = 'Newly\nDiagnosed'
+
+table(baseline$Group)
+table(baseline$Cohort)
+
+P1 <- ggplot(baseline, aes(Group, AA.Entropy, color=Group)) +
+    geom_boxplot(outlier.shape = NA) +
+    geom_dotplot(binaxis='y', stackdir='center', dotsize=0.5, aes(fill=Group)) +
+    scale_fill_manual(values=c("#009E73", "#D55E00", "#0072B2")) +
+    #geom_jitter() +
+    scale_color_manual(values=c("#009E73", "#D55E00", "#0072B2")) +
+    xlab('') +
+    ylab('TCR repertoire diversity') +
+    stat_compare_means(comparisons = list(c(2,3), c(1,2), c(1,3)), method="wilcox.test") +
+    scale_y_continuous(limits = c(5,21)) +
+    theme_pubr() +
+    theme(legend.position = 'none')
+
+pdf('outputs/Fig1a.TCR_diversity_case.pdf', height=4, width=3.5)
+P1
+dev.off()
+P1
+
+baseline$Group = sub('\\n', ' ', baseline$Group)
+write.csv(baseline[, c('ZID', 'Group', 'AA.Entropy')], file = 'outputs/SourceData.Fig1a.csv', row.names = F)
+```
+
+## ASCT and TCR diversity
+
+```{r, fig.height=4, fig.width=7}
+new = tab
+new$Group = as.character(new$Type)
+new$Group[new$Group == 'CR' & new$Interval == 'ASCT >=1year'] = 'CR\nASCT>=1yr'
+new$Group[new$Group == 'CR' & new$Interval == 'ASCT < 1year'] = 'CR\nASCT<1yr'
+new$Group[new$Group == 'PR' & new$Interval == 'ASCT >=1year'] = 'PR\nASCT>=1yr'
+new$Group[new$Group == 'PR' & new$Interval == 'ASCT < 1year'] = 'PR\nASCT<1yr'
+new$Group[new$Group == 'PD' & new$Interval == 'ASCT >=1year'] = 'PD\nASCT>=1yr'
+new$Group[new$Group == 'PD' & new$Interval == 'ASCT < 1year'] = 'PD\nASCT<1yr'
+
+new$Samples = new$Group
+new$Samples[new$Interval == 'ASCT >=1year'] = 'ASCT>=1yr'
+new$Samples[new$Interval == 'ASCT < 1year'] = 'ASCT<1yr'
+new$Samples = factor(new$Samples, c('Donor', 'Newly', 'ASCT>=1yr', 'ASCT<1yr'))
+
+new$Group = factor(new$Group, c('Donor', 'Newly', 'CR\nASCT>=1yr', 'PR\nASCT>=1yr', 'PD\nASCT>=1yr',
+                                'CR\nASCT<1yr', 'PR\nASCT<1yr', 'PD\nASCT<1yr'))
+levels(new$Group)[1] = 'Healthy\nDonors'
+levels(new$Group)[2] = 'Newly\nDiagnosed'
+levels(new$Cohort)[5] = 'Newly Diagnosed'
+levels(new$Cohort)[6] = 'Healthy Donors'
+
+table(new[new$Time == 'Pre', 'Group'])
+baseline = new[(new$Time == 'Pre') & (new$BOR != 'Donor'), ]
+
+P1 <- ggplot(baseline, aes(Group, AA.Entropy)) + 
+    theme_classic() +
+    geom_boxplot(outlier.shape = NA) +
+    geom_dotplot(binaxis='y', stackdir='center', dotsize=0.8, aes(color=Samples, fill=Samples)) +
+    scale_color_manual(values=c("#D55E00", "#0072B2", "#0072B2")) +
+    scale_fill_manual(values=c("#D55E00", "#0072B2", "#EEEEEE")) +
+    stat_compare_means(comparisons = list(c(1,2), c(2,3), c(2,4), c(1,3), c(1,4)), method="wilcox.test") +
+    xlab('') +
+    ylab('TCR repertoire diversity') +
+    theme(legend.position = 'none')
+
+pdf('outputs/Fig1b.All_TCR_diversity.pdf', height=4, width=6)
+P1
+dev.off()
+P1
+
+baseline$Group = sub('\\n', ' ', baseline$Group)
+write.csv(baseline[, c('ZID', 'Group', 'Samples', 'AA.Entropy')], file = 'outputs/SourceData.Fig1b.csv', row.names = F)
+```
+
+## Count prior lines of therapy
+
+```{r}
+new = read.csv('../../nat_med_review2/Supp_Tab1_ge12month.csv')
+new$BOR = factor(new$BOR, levels = c('CR','PR','PD'))
+
+print(table(new$BOR))
+
+P1 <- ggplot(new, aes(BOR, No_of_previous_lines_of_Rx)) + 
+    geom_boxplot(outlier.shape = NA) +
+    geom_dotplot(binaxis='y', stackdir='center', dotsize=0.8, aes(color=BOR, fill=BOR)) +
+    stat_compare_means(comparisons = list(c(2,3), c(1,2), c(1,3)), method="wilcox.test") +
+    xlab('') +
+    ylab('Number of prior lines of therapy\nin the trial patients') +
+    theme_pubr() +
+    theme(legend.position = 'none')
+
+P1
+pdf('outputs/Ext_Fig1a.Prior_Rx.pdf', height=4, width=3)
+P1
+dev.off()
+
+write.csv(new[, c('Patient_ID', 'BOR', 'No_of_previous_lines_of_Rx')], file = 'outputs/SourceData.Ext_Fig1a.csv', row.names = F)
+```
+
+## Total number of detected clones
+
+```{r}
+new = tab[tab$Time == 'Pre' & tab$BOR %in% c('CR','PR','PD') & tab$Time.between.ASCT.and.First.Dose >=12, ]
+new$BOR = factor(new$BOR, levels=c('CR','PR','PD'))
+
+print(table(new$BOR))
+
+P1 <- ggplot(new, aes(BOR, DNA.Total)) + 
+    geom_boxplot(outlier.shape = NA) +
+    geom_dotplot(binaxis='y', stackdir='center', dotsize=0.8, aes(color=BOR, fill=BOR)) +
+    scale_y_log10() +
+    stat_compare_means(comparisons = list(c(1,2), c(2,3), c(1,3)), method="wilcox.test") +
+    xlab('') +
+    ylab('Total number of TCR-seq detected T cells') +
+    theme_pubr() +
+    theme(legend.position = 'none')
+
+pdf('outputs/Ext_Fig1d.DNA_total.pdf', height=4, width=4)
+P1
+dev.off()
+P1
+
+write.csv(new[, c('ZID', 'BOR', 'DNA.Total')], file = 'outputs/SourceData.Ext_Fig1d.csv', row.names = F)
+```
